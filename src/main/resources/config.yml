@@ -11,6 +11,20 @@ database:
   username: "flamerealms"
   password: "CHANGE_ME"
   pool-size: 10
+  # How long (in milliseconds) to wait for a connection from the pool before
+  # giving up. Default matches HikariCP's own default (30000).
+  connection-timeout-ms: 30000
+  # Minimum number of idle connections HikariCP tries to maintain in the
+  # pool. Default matches HikariCP's own default of being equal to
+  # pool-size.
+  minimum-idle: 10
+  # Maximum lifetime (in milliseconds) of a connection in the pool before it
+  # is retired. Default matches HikariCP's own default (1800000, i.e. 30
+  # minutes).
+  max-lifetime-ms: 1800000
+  # How long (in milliseconds) HikariCP waits for a connection to be
+  # validated as alive. Default matches HikariCP's own default (5000).
+  validation-timeout-ms: 5000
 
 async:
   executor-thread-pool-size: 4

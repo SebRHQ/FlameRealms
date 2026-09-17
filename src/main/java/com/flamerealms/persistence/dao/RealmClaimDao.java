@@ -6,6 +6,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Data access for the {@code realm_claims} table.
@@ -56,6 +57,16 @@ public interface RealmClaimDao {
      * purely to back {@code RealmCache#loadClaims}.
      */
     List<RealmClaim> findAll(Connection connection) throws SQLException;
+
+    /**
+     * Looks up the most-recently-claimed chunk belonging to {@code realmId}
+     * (i.e. the one with the latest {@code claimed_at}), if it has any claims
+     * at all. Backs {@code UpkeepService}'s upkeep-debt chunk-release
+     * mechanism, which releases exactly the newest claim first when a realm's
+     * consecutive-failed-upkeep-cycle count exceeds {@code
+     * PricingConfig#debtReleaseThresholdCycles()}.
+     */
+    Optional<RealmClaim> findMostRecentByRealm(Connection connection, long realmId) throws SQLException;
 
     /**
      * Deletes one claimed chunk belonging to {@code realmId}.

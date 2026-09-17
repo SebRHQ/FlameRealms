@@ -132,7 +132,7 @@ class ClaimServiceConcurrencyIT {
         long realmId;
         try (Connection setup = dataSource.getConnection()) {
             Realm realm = realmDao.insert(setup, new Realm(
-                    0L, uniqueName("claim-race"), "Claim Race", UUID.randomUUID(), 1, Instant.now(), null));
+                    0L, uniqueName("claim-race"), "Claim Race", UUID.randomUUID(), 1, Instant.now(), null, null, null, null, null));
             realmId = realm.id();
 
             RealmRank rank = realmRankDao.insert(setup, new RealmRank(

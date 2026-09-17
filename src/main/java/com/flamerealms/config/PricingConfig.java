@@ -42,6 +42,11 @@ import java.util.logging.Logger;
  *                                    {@code upkeep.active-population.saturation-constant})
  * @param maxMultiplierBonus         upper bound on the active-population multiplier bonus
  *                                    (config: {@code upkeep.active-population.max-multiplier-bonus})
+ * @param realmCreationFeeCents      one-time fee to found a new realm, in cents
+ *                                    (config: {@code realm-creation.fee-cents})
+ * @param debtReleaseThresholdCycles number of consecutive fully-failed upkeep cycles a realm
+ *                                    can accrue before its territory is released (config:
+ *                                    {@code upkeep.debt-release-threshold-cycles})
  */
 public record PricingConfig(
         List<PriceTier> purchaseTiers,
@@ -50,7 +55,9 @@ public record PricingConfig(
         int presenceThresholdMinutes,
         int rollingWindowDays,
         double saturationConstant,
-        double maxMultiplierBonus
+        double maxMultiplierBonus,
+        long realmCreationFeeCents,
+        int debtReleaseThresholdCycles
 ) {
 
     /** One band of {@code claims.purchase-tiers}: price for claim counts up to (and including) {@code maxClaims}. */
@@ -92,10 +99,13 @@ public record PricingConfig(
         int rollingWindowDays = config.getInt("upkeep.active-population.rolling-window-days", 7);
         double saturationConstant = config.getDouble("upkeep.active-population.saturation-constant", 8.0);
         double maxMultiplierBonus = config.getDouble("upkeep.active-population.max-multiplier-bonus", 0.5);
+        long realmCreationFeeCents = config.getLong("realm-creation.fee-cents", 50000L);
+        int debtReleaseThresholdCycles = config.getInt("upkeep.debt-release-threshold-cycles", 3);
 
         return new PricingConfig(
                 purchaseTiers, territoryMultiplierTiers, costPerChunkCents,
-                presenceThresholdMinutes, rollingWindowDays, saturationConstant, maxMultiplierBonus);
+                presenceThresholdMinutes, rollingWindowDays, saturationConstant, maxMultiplierBonus,
+                realmCreationFeeCents, debtReleaseThresholdCycles);
     }
 
     private static List<PriceTier> parsePriceTiers(FileConfiguration config, String path, Logger logger) {

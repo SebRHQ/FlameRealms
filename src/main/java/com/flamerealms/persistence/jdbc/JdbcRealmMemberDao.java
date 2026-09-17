@@ -9,6 +9,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -29,6 +31,9 @@ public final class JdbcRealmMemberDao implements RealmMemberDao {
 
     private static final String UPDATE_RANK =
             "UPDATE realm_members SET rank_id = ? WHERE realm_id = ? AND player_uuid = ?";
+
+    private static final String FIND_ALL_PLAYER_UUIDS =
+            "SELECT player_uuid FROM realm_members WHERE realm_id = ?";
 
     @Override
     public void insert(Connection connection, RealmMember member) throws SQLException {
@@ -67,6 +72,20 @@ public final class JdbcRealmMemberDao implements RealmMemberDao {
             statement.setLong(2, realmId);
             statement.setBytes(3, UuidCodec.toBytes(playerUuid));
             statement.executeUpdate();
+        }
+    }
+
+    @Override
+    public List<UUID> findAllPlayerUuids(Connection connection, long realmId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(FIND_ALL_PLAYER_UUIDS)) {
+            statement.setLong(1, realmId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                List<UUID> playerUuids = new ArrayList<>();
+                while (resultSet.next()) {
+                    playerUuids.add(UuidCodec.fromBytes(resultSet.getBytes("player_uuid")));
+                }
+                return playerUuids;
+            }
         }
     }
 

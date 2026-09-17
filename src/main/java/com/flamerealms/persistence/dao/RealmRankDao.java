@@ -4,6 +4,7 @@ import com.flamerealms.domain.RealmRank;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -37,4 +38,13 @@ public interface RealmRankDao {
      * do that from an id alone.
      */
     Optional<RealmRank> findById(Connection connection, long rankId) throws SQLException;
+
+    /**
+     * Every rank belonging to {@code realmId}, ordered by {@code priority
+     * DESC} so Leader/Officer/Member (or any custom ranks) come out in their
+     * natural hierarchy order, highest priority first. For a future
+     * rank-picker UI/command to enumerate. Empty (never {@code null}) if the
+     * realm has no ranks.
+     */
+    List<RealmRank> findAllByRealm(Connection connection, long realmId) throws SQLException;
 }

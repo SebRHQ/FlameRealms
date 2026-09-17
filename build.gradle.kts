@@ -22,6 +22,11 @@ repositories {
     // com.github.MilkBowl:VaultAPI is not on Maven Central) — see the
     // compileOnly dependency below.
     maven("https://jitpack.io")
+
+    // EngineHub (WorldGuard/WorldEdit) publish only to their own Maven repo,
+    // never to Maven Central — see the WorldGuard compileOnly dependency
+    // below.
+    maven("https://maven.enginehub.org/repo/")
 }
 
 dependencies {
@@ -37,6 +42,17 @@ dependencies {
     // com.github.MilkBowl:VaultAPI, since Vault does not publish to Maven
     // Central; 1.7.1 is VaultAPI's latest tagged release as of writing.
     compileOnly("com.github.MilkBowl:VaultAPI:1.7.1")
+
+    // WorldGuard's Bukkit API, for com.flamerealms.protection.ClaimProtectionService.
+    // Unlike Vault above, WorldGuard is a HARD dependency for FlameRealms —
+    // plugin.yml's `depend: [WorldGuard]` already requires the server to have
+    // it installed before FlameRealms will even enable — so this is
+    // compileOnly purely because the server provides the real jar at runtime
+    // (worldguard-bukkit-7.0.18.jar, matched here exactly), never because
+    // WorldGuard is optional. worldguard-bukkit's own POM pulls in
+    // worldedit-bukkit (needed for BukkitAdapter) transitively at a
+    // compatible version, so no separate WorldEdit dependency is declared.
+    compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.18")
 
     // Shaded into the plugin jar (see shadowJar relocations below).
     implementation("com.zaxxer:HikariCP:5.1.0")
@@ -55,6 +71,13 @@ dependencies {
     // the main source set's runtime classpath, never test dependencies), so
     // the production compileOnly above is unaffected.
     testImplementation("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
+
+    // Same reasoning as paper-api above: RealmActionsTest mocks
+    // ClaimProtectionService via Mockito, which needs WorldGuard's classes
+    // (and its transitive WorldEdit ones) resolvable on the TEST RUNTIME
+    // classpath, not just at compile time. Never reaches the shaded plugin
+    // jar, so the production compileOnly above is unaffected.
+    testImplementation("com.sk89q.worldguard:worldguard-bukkit:7.0.18")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.3")
     // 5.20.0+ bundles a Byte Buddy new enough to instrument classes on the

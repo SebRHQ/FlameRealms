@@ -80,11 +80,11 @@ final class ClaimServiceImplTest {
                         new PricingConfig.PriceTier(3, TIER_2_PRICE),
                         new PricingConfig.PriceTier(Integer.MAX_VALUE, TIER_3_PRICE)),
                 List.of(new PricingConfig.MultiplierTier(Integer.MAX_VALUE, 1.0)),
-                100L, 60, 7, 10.0, 0.5
+                100L, 60, 7, 10.0, 0.5, 50000L, 3
         );
 
         Realm realm = realmDao.insert(connection,
-                new Realm(0L, "ember", "Ember", UUID.randomUUID(), 1, Instant.now(), null));
+                new Realm(0L, "ember", "Ember", UUID.randomUUID(), 1, Instant.now(), null, null, null, null, null));
         realmId = realm.id();
         realmCache.put(realm);
 

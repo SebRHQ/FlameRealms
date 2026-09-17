@@ -8,6 +8,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -31,6 +33,10 @@ public final class JdbcRealmRankDao implements RealmRankDao {
     private static final String FIND_BY_ID =
             "SELECT id, realm_id, name, priority, permissions, is_default "
                     + "FROM realm_ranks WHERE id = ?";
+
+    private static final String FIND_ALL_BY_REALM =
+            "SELECT id, realm_id, name, priority, permissions, is_default "
+                    + "FROM realm_ranks WHERE realm_id = ? ORDER BY priority DESC";
 
     @Override
     public RealmRank insert(Connection connection, RealmRank rank) throws SQLException {
@@ -80,6 +86,20 @@ public final class JdbcRealmRankDao implements RealmRankDao {
             statement.setLong(1, rankId);
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next() ? Optional.of(mapRow(resultSet)) : Optional.empty();
+            }
+        }
+    }
+
+    @Override
+    public List<RealmRank> findAllByRealm(Connection connection, long realmId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(FIND_ALL_BY_REALM)) {
+            statement.setLong(1, realmId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                List<RealmRank> ranks = new ArrayList<>();
+                while (resultSet.next()) {
+                    ranks.add(mapRow(resultSet));
+                }
+                return ranks;
             }
         }
     }

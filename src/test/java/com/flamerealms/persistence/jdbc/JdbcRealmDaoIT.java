@@ -91,10 +91,10 @@ class JdbcRealmDaoIT {
         String name = uniqueName("dup-name");
 
         try (Connection connection = dataSource.getConnection()) {
-            realmDao.insert(connection, new Realm(0L, name, "First", UUID.randomUUID(), 1, Instant.now(), null));
+            realmDao.insert(connection, new Realm(0L, name, "First", UUID.randomUUID(), 1, Instant.now(), null, null, null, null, null));
 
             assertThatThrownBy(() -> realmDao.insert(
-                    connection, new Realm(0L, name, "Second", UUID.randomUUID(), 1, Instant.now(), null)))
+                    connection, new Realm(0L, name, "Second", UUID.randomUUID(), 1, Instant.now(), null, null, null, null, null)))
                     .isInstanceOf(SQLException.class);
         }
     }
@@ -105,7 +105,7 @@ class JdbcRealmDaoIT {
 
         try (Connection connection = dataSource.getConnection()) {
             Realm realmA = realmDao.insert(connection, new Realm(
-                    0L, uniqueName("realm-a"), "Realm A", player, 1, Instant.now(), null));
+                    0L, uniqueName("realm-a"), "Realm A", player, 1, Instant.now(), null, null, null, null, null));
             RealmRank leaderRank = realmRankDao.insert(
                     connection, new RealmRank(0L, realmA.id(), "Leader", 100, RealmPermission.ALL, false));
             realmMemberDao.insert(connection, new RealmMember(realmA.id(), player, leaderRank.id(), Instant.now()));
@@ -113,7 +113,7 @@ class JdbcRealmDaoIT {
             // A second, unrelated realm — `player` tries to join it too,
             // despite already belonging to realmA.
             Realm realmB = realmDao.insert(connection, new Realm(
-                    0L, uniqueName("realm-b"), "Realm B", UUID.randomUUID(), 1, Instant.now(), null));
+                    0L, uniqueName("realm-b"), "Realm B", UUID.randomUUID(), 1, Instant.now(), null, null, null, null, null));
             RealmRank defaultRank = realmRankDao.insert(
                     connection, new RealmRank(0L, realmB.id(), "Member", 0, 0L, true));
 

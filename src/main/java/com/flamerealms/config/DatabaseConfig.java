@@ -17,9 +17,17 @@ import java.util.logging.Logger;
  * @param database         database/schema name (config: {@code database.database})
  * @param username         database username (config: {@code database.username})
  * @param password         database password (config: {@code database.password})
- * @param poolSize         HikariCP maximum pool size (config: {@code database.pool-size})
- * @param asyncPoolSize    size of the async database executor's fixed thread pool
- *                         (config: {@code async.executor-thread-pool-size})
+ * @param poolSize             HikariCP maximum pool size (config: {@code database.pool-size})
+ * @param asyncPoolSize        size of the async database executor's fixed thread pool
+ *                             (config: {@code async.executor-thread-pool-size})
+ * @param connectionTimeoutMs  HikariCP connection timeout, in milliseconds
+ *                             (config: {@code database.connection-timeout-ms})
+ * @param minimumIdle          HikariCP minimum idle connections
+ *                             (config: {@code database.minimum-idle})
+ * @param maxLifetimeMs        HikariCP maximum connection lifetime, in milliseconds
+ *                             (config: {@code database.max-lifetime-ms})
+ * @param validationTimeoutMs  HikariCP validation timeout, in milliseconds
+ *                             (config: {@code database.validation-timeout-ms})
  */
 public record DatabaseConfig(
         String host,
@@ -28,10 +36,19 @@ public record DatabaseConfig(
         String username,
         String password,
         int poolSize,
-        int asyncPoolSize
+        int asyncPoolSize,
+        long connectionTimeoutMs,
+        int minimumIdle,
+        long maxLifetimeMs,
+        long validationTimeoutMs
 ) {
 
     private static final int DEFAULT_ASYNC_POOL_SIZE = 4;
+    // Each of these matches HikariCP's own documented default, so leaving
+    // the corresponding config.yml key unset changes nothing.
+    private static final long DEFAULT_CONNECTION_TIMEOUT_MS = 30_000L;
+    private static final long DEFAULT_MAX_LIFETIME_MS = 1_800_000L;
+    private static final long DEFAULT_VALIDATION_TIMEOUT_MS = 5_000L;
 
     /**
      * Reads the {@code database:} and {@code async:} blocks from the given
@@ -62,7 +79,18 @@ public record DatabaseConfig(
                 "async.executor-thread-pool-size",
                 getIntStrict(config, "async.executor-thread-pool-size", DEFAULT_ASYNC_POOL_SIZE, logger));
 
-        return new DatabaseConfig(host, port, database, username, password, poolSize, asyncPoolSize);
+        long connectionTimeoutMs = getLongStrict(
+                config, "database.connection-timeout-ms", DEFAULT_CONNECTION_TIMEOUT_MS, logger);
+        // HikariCP's own default is minimumIdle == maximumPoolSize unless
+        // overridden, so mirror poolSize here rather than a fixed constant.
+        int minimumIdle = getIntStrict(config, "database.minimum-idle", poolSize, logger);
+        long maxLifetimeMs = getLongStrict(config, "database.max-lifetime-ms", DEFAULT_MAX_LIFETIME_MS, logger);
+        long validationTimeoutMs = getLongStrict(
+                config, "database.validation-timeout-ms", DEFAULT_VALIDATION_TIMEOUT_MS, logger);
+
+        return new DatabaseConfig(
+                host, port, database, username, password, poolSize, asyncPoolSize,
+                connectionTimeoutMs, minimumIdle, maxLifetimeMs, validationTimeoutMs);
     }
 
     /**
@@ -81,6 +109,26 @@ public record DatabaseConfig(
         }
         if (raw instanceof Number number) {
             return number.intValue();
+        }
+        logger.warning("config.yml: '" + path + "' is set to '" + raw
+                + "' (not a number) — falling back to the default of " + def
+                + ". Check for a stray quote around the value.");
+        return def;
+    }
+
+    /**
+     * Like {@link #getIntStrict}, but for the long-valued HikariCP tuning
+     * knobs (timeouts/lifetimes, given in milliseconds). Same logic: warns
+     * on a present-but-wrong-typed value, stays silent when the path is
+     * simply unset.
+     */
+    private static long getLongStrict(FileConfiguration config, String path, long def, Logger logger) {
+        Object raw = config.get(path);
+        if (raw == null) {
+            return def;
+        }
+        if (raw instanceof Number number) {
+            return number.longValue();
         }
         logger.warning("config.yml: '" + path + "' is set to '" + raw
                 + "' (not a number) — falling back to the default of " + def

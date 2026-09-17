@@ -50,7 +50,7 @@ final class ActivityTrackingServiceTest {
         realmCache = new RealmCache();
         realmMemberActivityDao = new FakeRealmMemberActivityDao();
 
-        Realm realm = new Realm(1L, "alpha", "Alpha", UUID.randomUUID(), 1, Instant.now(), null);
+        Realm realm = new Realm(1L, "alpha", "Alpha", UUID.randomUUID(), 1, Instant.now(), null, null, null, null, null);
         realmCache.put(realm);
         realmId = realm.id();
 

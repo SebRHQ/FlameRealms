@@ -5,9 +5,11 @@ import com.flamerealms.persistence.dao.RealmClaimDao;
 
 import java.sql.Connection;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Hand-written, in-memory {@link RealmClaimDao} test double. Not thread-safe
@@ -48,6 +50,12 @@ public final class FakeRealmClaimDao implements RealmClaimDao {
     @Override
     public List<RealmClaim> findAll(Connection connection) {
         return new ArrayList<>(claimsById.values());
+    }
+
+    @Override
+    public Optional<RealmClaim> findMostRecentByRealm(Connection connection, long realmId) {
+        return findByRealm(connection, realmId).stream()
+                .max(Comparator.comparing(RealmClaim::claimedAt));
     }
 
     @Override

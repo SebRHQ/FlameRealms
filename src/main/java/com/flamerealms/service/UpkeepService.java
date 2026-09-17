@@ -2,8 +2,10 @@ package com.flamerealms.service;
 
 import com.flamerealms.cache.RealmCache;
 import com.flamerealms.config.PricingConfig;
+import com.flamerealms.domain.ChunkCoordinate;
 import com.flamerealms.domain.LedgerEntity;
 import com.flamerealms.domain.Realm;
+import com.flamerealms.domain.RealmClaim;
 import com.flamerealms.domain.TransactionCategory;
 import com.flamerealms.persistence.AsyncDatabaseExecutor;
 import com.flamerealms.persistence.dao.LedgerDao;
@@ -19,6 +21,8 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
+import java.util.function.BiConsumer;
 import java.util.logging.Logger;
 import java.util.concurrent.CompletableFuture;
 
@@ -50,10 +54,45 @@ import java.util.concurrent.CompletableFuture;
  * debt — onto {@code upkeep_debt_cents}, so debt grows by one cycle's worth
  * per unpaid day, never double-counted.
  *
- * <p><b>No auto-unclaim.</b> Accumulating, unpaid upkeep debt does not cause
- * claims to be released automatically. That is explicitly out of scope for
- * this milestone (see {@code TODO.md}, which already lists it as pending)
- * and is not implemented here.
+ * <p><b>Upkeep-debt chunk release.</b> A realm's consecutive-failed-upkeep-
+ * cycle count ({@code realms.upkeep_unpaid_cycles}, read/written via {@link
+ * RealmDao#incrementUnpaidUpkeepCycles}/{@link RealmDao#resetUnpaidUpkeepCycles}/
+ * {@link RealmDao#findUnpaidUpkeepCycles}) is reset to zero alongside the debt
+ * itself whenever a cycle's charge is fully paid, and incremented by one
+ * alongside the debt whenever it isn't. If, after incrementing, that count
+ * exceeds {@link PricingConfig#debtReleaseThresholdCycles()}, exactly ONE of
+ * the realm's claims — the most recently claimed one ({@link
+ * RealmClaimDao#findMostRecentByRealm}) — is released in the SAME transaction
+ * as that cycle's charge, via {@link RealmClaimDao#delete}. A realm with zero
+ * claims left simply keeps accruing an ever-climbing unpaid-cycle count with
+ * nothing further this mechanism can do about it — that is not treated as an
+ * error. See {@link #chargeUpkeep} for exactly where this happens.
+ *
+ * <p><b>The {@code onClaimReleased} callback.</b> Actually applying a released
+ * claim's real-world consequences — {@link RealmCache#removeClaim} and, more
+ * importantly, un-protecting the chunk's WorldGuard region — cannot happen
+ * inside {@link #chargeUpkeep}'s transaction (it runs off the main thread,
+ * inside {@link AsyncDatabaseExecutor#submit}) nor inside this class at all:
+ * {@code com.flamerealms.service} classes must stay Bukkit/WorldGuard-free
+ * (see {@code ClaimServiceImpl}'s own class Javadoc for why), so this class
+ * cannot take a {@code ClaimProtectionService} reference directly. Instead,
+ * the constructor takes a small functional callback, {@code onClaimReleased},
+ * of type {@code BiConsumer<String, ChunkCoordinate>} (the realm id, as a
+ * string, and the released chunk). {@link #chargeUpkeep} applies {@link
+ * RealmCache#removeClaim} itself (that much is layering-clean — {@link
+ * RealmCache} is already a dependency of this class) once its transaction has
+ * committed, then invokes {@code onClaimReleased}, hopped onto the main
+ * thread via {@code Bukkit.getScheduler().runTask(plugin, ...)} (this class
+ * already holds a {@link JavaPlugin} reference for its own scheduled task
+ * registration in {@link #start()}, reused here), so the actual caller —
+ * {@code FlameRealmsPlugin}, wiring this to {@code
+ * ClaimProtectionService#unprotectClaim} — can safely touch Bukkit/WorldGuard
+ * APIs in response.
+ *
+ * <p><b>No auto-unclaim before this milestone.</b> Earlier milestones left
+ * accumulating unpaid upkeep debt with no consequence beyond the debt figure
+ * itself growing (see {@code TODO.md}, which listed it as pending); the
+ * mechanism above is what closes that gap.
  *
  * <p><b>Per-realm isolation.</b> Every realm's charge runs as its own {@code
  * AsyncDatabaseExecutor.submit(...)} call — its own connection, its own
@@ -80,6 +119,7 @@ public final class UpkeepService {
     private final LedgerDao ledgerDao;
     private final AsyncDatabaseExecutor asyncDatabaseExecutor;
     private final PricingConfig pricingConfig;
+    private final BiConsumer<String, ChunkCoordinate> onClaimReleased;
     private final Logger logger;
 
     private BukkitTask upkeepTask;
@@ -92,7 +132,8 @@ public final class UpkeepService {
             RealmDao realmDao,
             LedgerDao ledgerDao,
             AsyncDatabaseExecutor asyncDatabaseExecutor,
-            PricingConfig pricingConfig
+            PricingConfig pricingConfig,
+            BiConsumer<String, ChunkCoordinate> onClaimReleased
     ) {
         this.plugin = plugin;
         this.realmCache = realmCache;
@@ -102,6 +143,7 @@ public final class UpkeepService {
         this.ledgerDao = ledgerDao;
         this.asyncDatabaseExecutor = asyncDatabaseExecutor;
         this.pricingConfig = pricingConfig;
+        this.onClaimReleased = onClaimReleased;
         this.logger = plugin.getLogger();
     }
 
@@ -148,12 +190,20 @@ public final class UpkeepService {
 
     /**
      * One realm's independent charge transaction: see class Javadoc's "Debt
-     * accounting" section for steps (a)-(e). Never throws; failures are
-     * logged and swallowed into a completed future so one realm's problem
-     * never propagates into {@link #runUpkeepCycle}'s aggregate future.
+     * accounting" and "Upkeep-debt chunk release" sections. Never throws;
+     * failures are logged and swallowed into a completed future so one
+     * realm's problem never propagates into {@link #runUpkeepCycle}'s
+     * aggregate future.
+     *
+     * <p>If this cycle's payment fails and pushes the realm's unpaid-cycle
+     * count past {@link PricingConfig#debtReleaseThresholdCycles()}, the
+     * realm's most-recently-claimed chunk is released inside the same
+     * transaction. {@link RealmCache#removeClaim} and {@code onClaimReleased}
+     * are then applied strictly after that transaction has committed — see
+     * class Javadoc's "The {@code onClaimReleased} callback" section for why.
      */
     private CompletableFuture<Void> chargeUpkeep(long realmId, LocalDate activeSince) {
-        return asyncDatabaseExecutor.<Void>submit(connection -> {
+        return asyncDatabaseExecutor.<Optional<ChunkCoordinate>>submit(connection -> {
             try {
                 return inTransaction(connection, conn -> {
                     int claimCount = realmClaimDao.countByRealm(conn, realmId);
@@ -169,7 +219,7 @@ public final class UpkeepService {
                         // the ledger entirely rather than record a
                         // meaningless zero-amount SINK transaction for every
                         // claim-less realm every day.
-                        return null;
+                        return Optional.<ChunkCoordinate>empty();
                     }
 
                     boolean paid = ledgerDao.recordAndApplyToRealm(
@@ -178,14 +228,46 @@ public final class UpkeepService {
 
                     if (paid) {
                         realmDao.resetUpkeepDebt(conn, realmId);
-                    } else {
-                        realmDao.incrementUpkeepDebt(conn, realmId, cycleUpkeepCents);
+                        realmDao.resetUnpaidUpkeepCycles(conn, realmId);
+                        return Optional.<ChunkCoordinate>empty();
                     }
-                    return null;
+
+                    realmDao.incrementUpkeepDebt(conn, realmId, cycleUpkeepCents);
+                    // Read the pre-increment count once, then track the
+                    // post-increment count locally — avoids a second read
+                    // back through RealmDao for the same value.
+                    int previousUnpaidCycles = realmDao.findUnpaidUpkeepCycles(conn, realmId);
+                    realmDao.incrementUnpaidUpkeepCycles(conn, realmId);
+                    int unpaidCyclesNow = previousUnpaidCycles + 1;
+
+                    if (unpaidCyclesNow <= pricingConfig.debtReleaseThresholdCycles()) {
+                        return Optional.<ChunkCoordinate>empty();
+                    }
+
+                    Optional<RealmClaim> mostRecentClaim = realmClaimDao.findMostRecentByRealm(conn, realmId);
+                    if (mostRecentClaim.isEmpty()) {
+                        // Nothing left to lose — the unpaid-cycles count keeps
+                        // climbing but there is nothing further this
+                        // mechanism can do about it. Not an error.
+                        return Optional.<ChunkCoordinate>empty();
+                    }
+
+                    RealmClaim released = mostRecentClaim.get();
+                    realmClaimDao.delete(conn, realmId, released.world(), released.chunkX(), released.chunkZ());
+                    return Optional.of(released.coordinate());
                 });
             } catch (SQLException e) {
                 throw new RuntimeException("Failed to charge upkeep for realm " + realmId, e);
             }
+        }).<Void>thenApply(releasedClaim -> {
+            releasedClaim.ifPresent(coordinate -> {
+                realmCache.removeClaim(coordinate);
+                if (onClaimReleased != null) {
+                    Bukkit.getScheduler().runTask(plugin,
+                            () -> onClaimReleased.accept(String.valueOf(realmId), coordinate));
+                }
+            });
+            return null;
         }).exceptionally(error -> {
             logger.warning("Failed to charge upkeep for realm " + realmId + ": " + error.getMessage());
             return null;

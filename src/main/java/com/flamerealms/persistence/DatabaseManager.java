@@ -30,7 +30,19 @@ public final class DatabaseManager {
      */
     public DatabaseManager(DatabaseConfig config) {
         this.dataSource = buildDataSource(config);
-        migrate();
+        try {
+            migrate();
+        } catch (RuntimeException e) {
+            // buildDataSource(...) already eagerly opened a live HikariCP pool
+            // (real connections + its background housekeeper thread) as a side
+            // effect of construction, before migrate() ever ran. If migration
+            // then fails, this constructor throws and never returns an
+            // instance — so FlameRealmsPlugin's degraded-mode catch block has
+            // no DatabaseManager reference to call shutdown() on. Without this,
+            // that fully-live pool would leak for the rest of the JVM's life.
+            dataSource.close();
+            throw e;
+        }
     }
 
     private static HikariDataSource buildDataSource(DatabaseConfig config) {
@@ -39,6 +51,10 @@ public final class DatabaseManager {
         hikariConfig.setUsername(config.username());
         hikariConfig.setPassword(config.password());
         hikariConfig.setMaximumPoolSize(config.poolSize());
+        hikariConfig.setConnectionTimeout(config.connectionTimeoutMs());
+        hikariConfig.setMinimumIdle(config.minimumIdle());
+        hikariConfig.setMaxLifetime(config.maxLifetimeMs());
+        hikariConfig.setValidationTimeout(config.validationTimeoutMs());
         hikariConfig.setPoolName("FlameRealms-Hikari");
         // Must be set explicitly: Bukkit/Paper loads each plugin with its own
         // classloader, so java.sql.DriverManager's ServiceLoader-based lookup

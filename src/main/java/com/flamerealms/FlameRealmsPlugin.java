@@ -1,18 +1,24 @@
 package com.flamerealms;
 
 import com.flamerealms.cache.RealmCache;
+import com.flamerealms.command.realm.RealmActions;
 import com.flamerealms.command.realm.RealmCommand;
 import com.flamerealms.config.DatabaseConfig;
 import com.flamerealms.config.Messages;
 import com.flamerealms.config.PricingConfig;
 import com.flamerealms.config.VisualizationConfig;
 import com.flamerealms.economy.VaultEconomyBridge;
+import com.flamerealms.gui.ChatInputService;
+import com.flamerealms.gui.GuiConfig;
+import com.flamerealms.gui.GuiManager;
+import com.flamerealms.gui.MainMenu;
 import com.flamerealms.persistence.AsyncDatabaseExecutor;
 import com.flamerealms.persistence.DatabaseManager;
 import com.flamerealms.persistence.dao.LedgerDao;
 import com.flamerealms.persistence.dao.PlayerWalletDao;
 import com.flamerealms.persistence.dao.RealmClaimDao;
 import com.flamerealms.persistence.dao.RealmDao;
+import com.flamerealms.persistence.dao.RealmInviteDao;
 import com.flamerealms.persistence.dao.RealmMemberActivityDao;
 import com.flamerealms.persistence.dao.RealmMemberDao;
 import com.flamerealms.persistence.dao.RealmRankDao;
@@ -20,9 +26,12 @@ import com.flamerealms.persistence.jdbc.JdbcLedgerDao;
 import com.flamerealms.persistence.jdbc.JdbcPlayerWalletDao;
 import com.flamerealms.persistence.jdbc.JdbcRealmClaimDao;
 import com.flamerealms.persistence.jdbc.JdbcRealmDao;
+import com.flamerealms.persistence.jdbc.JdbcRealmInviteDao;
 import com.flamerealms.persistence.jdbc.JdbcRealmMemberActivityDao;
 import com.flamerealms.persistence.jdbc.JdbcRealmMemberDao;
 import com.flamerealms.persistence.jdbc.JdbcRealmRankDao;
+import com.flamerealms.protection.ClaimProtectionService;
+import com.flamerealms.protection.NexusProtectionListener;
 import com.flamerealms.service.ActivityTrackingService;
 import com.flamerealms.service.ClaimService;
 import com.flamerealms.service.ClaimServiceImpl;
@@ -40,6 +49,7 @@ import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 
 import net.milkbowl.vault.economy.Economy;
 
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -48,6 +58,7 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.function.Consumer;
 
 /**
  * Main entry point for the FlameRealms plugin.
@@ -71,12 +82,18 @@ public final class FlameRealmsPlugin extends JavaPlugin {
     private ClaimService claimService;
     private ClaimVisualizationService claimVisualizationService;
     private TerritoryMapService territoryMapService;
+    private ClaimProtectionService claimProtectionService;
     private ActivityTrackingService activityTrackingService;
     private UpkeepService upkeepService;
     private RealmMemberDao realmMemberDao;
     private RealmRankDao realmRankDao;
     private Messages messages;
     private PricingConfig pricingConfig;
+    private RealmActions realmActions;
+    private GuiConfig guiConfig;
+    private ChatInputService chatInputService;
+    private GuiManager guiManager;
+    private Consumer<Player> openMainMenu;
 
     @Override
     public void onEnable() {
@@ -89,22 +106,44 @@ public final class FlameRealmsPlugin extends JavaPlugin {
         // DatabaseManager runs Flyway migrations synchronously here, during
         // startup — acceptable once, before the server is serving players.
         // It must never be constructed on the main thread again after enable.
-        databaseManager = new DatabaseManager(databaseConfig);
+        //
+        // Construction can throw (HikariCP's PoolInitializationException if
+        // it can't connect, or Flyway's FlywayException if migrations fail)
+        // — both are unchecked. The plugin must never fail to enable just
+        // because the database is unreachable: every command still needs to
+        // register so non-database commands keep working, and
+        // database-dependent ones should fail with one clear in-game message
+        // instead of the whole plugin going dark. So this is the one place
+        // that catches RuntimeException and degrades instead of propagating.
+        try {
+            databaseManager = new DatabaseManager(databaseConfig);
 
-        // AsyncDatabaseExecutor is the sole gateway to the database from here
-        // on: every DAO/service call dispatches through it, never directly.
-        asyncDatabaseExecutor = new AsyncDatabaseExecutor(databaseManager, databaseConfig.asyncPoolSize());
+            // AsyncDatabaseExecutor is the sole gateway to the database from
+            // here on: every DAO/service call dispatches through it, never
+            // directly.
+            asyncDatabaseExecutor = new AsyncDatabaseExecutor(databaseManager, databaseConfig.asyncPoolSize());
+        } catch (RuntimeException e) {
+            getLogger().severe("Could not connect to the database or run migrations — FlameRealms is "
+                    + "starting in a degraded mode. Every database-dependent command will show a clear "
+                    + "in-game error until this is fixed and the server is restarted. Cause: " + e.getMessage());
+            databaseManager = null;
+            asyncDatabaseExecutor = AsyncDatabaseExecutor.unavailable();
+        }
 
         RealmDao realmDao = new JdbcRealmDao();
         realmRankDao = new JdbcRealmRankDao();
         realmMemberDao = new JdbcRealmMemberDao();
         RealmClaimDao realmClaimDao = new JdbcRealmClaimDao();
-
-        realmCache = new RealmCache();
-        realmService = new RealmServiceImpl(asyncDatabaseExecutor, realmCache, realmDao, realmRankDao, realmMemberDao);
+        RealmInviteDao realmInviteDao = new JdbcRealmInviteDao();
 
         PlayerWalletDao playerWalletDao = new JdbcPlayerWalletDao();
         LedgerDao ledgerDao = new JdbcLedgerDao(playerWalletDao, realmDao);
+
+        realmCache = new RealmCache();
+        realmService = new RealmServiceImpl(
+                asyncDatabaseExecutor, realmCache, realmDao, realmRankDao, realmMemberDao,
+                realmClaimDao, realmInviteDao, ledgerDao, pricingConfig);
+
         economyService = new EconomyServiceImpl(asyncDatabaseExecutor, playerWalletDao, ledgerDao);
         treasuryService = new TreasuryServiceImpl(
                 asyncDatabaseExecutor, realmCache, realmDao, realmMemberDao, realmRankDao, ledgerDao);
@@ -115,6 +154,22 @@ public final class FlameRealmsPlugin extends JavaPlugin {
         claimVisualizationService = new ClaimVisualizationService(this, visualizationConfig, realmCache);
         territoryMapService = new TerritoryMapService(realmCache, visualizationConfig);
 
+        // Real, in-world claim protection: one WorldGuard region per claimed
+        // chunk, BUILD denied for everyone except the owning realm's current
+        // members. See ClaimProtectionService's own class Javadoc for why
+        // this is a plain, non-listener class called from RealmActions at
+        // every point a realm's claims or membership change, never from the
+        // com.flamerealms.service layer.
+        claimProtectionService = new ClaimProtectionService(this);
+
+        // Nexus indestructibility: cancels BlockBreakEvent on any active
+        // realm's Nexus block unless the breaker holds flamerealms.admin. An
+        // ordinary Bukkit Listener with no other collaborators than the
+        // cache/messages it already needs, registered the same way
+        // GuiManager/ChatInputService are further below.
+        getServer().getPluginManager().registerEvents(
+                new NexusProtectionListener(realmCache, messages), this);
+
         // Presence tracking and the daily territory-upkeep charge — both
         // started right away. Neither depends on the cache warm-up below
         // having completed yet: ActivityTrackingService only ever reads
@@ -124,10 +179,44 @@ public final class FlameRealmsPlugin extends JavaPlugin {
         activityTrackingService = new ActivityTrackingService(
                 this, realmCache, realmMemberActivityDao, asyncDatabaseExecutor);
         activityTrackingService.start();
+        // The callback UpkeepService invokes once a claim is released for
+        // unpaid upkeep debt (see its own class Javadoc's "onClaimReleased
+        // callback" section). UpkeepService already hops back onto the main
+        // thread itself (via Bukkit.getScheduler().runTask(...)) before
+        // invoking this callback, so the callback body here calls
+        // ClaimProtectionService directly rather than re-hopping.
         upkeepService = new UpkeepService(
                 this, realmCache, realmClaimDao, realmMemberActivityDao, realmDao, ledgerDao,
-                asyncDatabaseExecutor, pricingConfig);
+                asyncDatabaseExecutor, pricingConfig,
+                (realmId, coordinate) -> claimProtectionService.unprotectClaim(
+                        coordinate.world(), coordinate.chunkX(), coordinate.chunkZ()));
         upkeepService.start();
+
+        // Business logic behind every /realm action, UI-framework-agnostic
+        // (no Brigadier types anywhere in it) so the same instance backs both
+        // the /realm command and the chest-GUI front end below — see
+        // RealmActions's own class Javadoc.
+        realmActions = new RealmActions(
+                this, realmService, economyService, treasuryService,
+                claimService, claimVisualizationService, territoryMapService, claimProtectionService,
+                asyncDatabaseExecutor, realmMemberDao, realmRankDao,
+                realmCache, pricingConfig, messages);
+
+        // Chest-GUI front end for /realm menu — built on top of the same
+        // RealmActions instance the command uses, so both front ends behave
+        // identically. GuiConfig only needs the plugin (to save/load
+        // gui.yml); ChatInputService and GuiManager are both ordinary Bukkit
+        // Listeners and must be registered with the plugin manager the same
+        // way any other listener in this plugin is. MainMenu itself has no
+        // instance — a fresh one is built on every open — so what's kept
+        // here is just a closure capturing the fixed collaborators it needs.
+        guiConfig = GuiConfig.load(this);
+        chatInputService = new ChatInputService(this);
+        getServer().getPluginManager().registerEvents(chatInputService, this);
+        guiManager = new GuiManager(this);
+        getServer().getPluginManager().registerEvents(guiManager, this);
+        openMainMenu = player -> MainMenu.open(
+                player, guiConfig, realmActions, realmService, realmCache, chatInputService, this, guiManager);
 
         // Vault bridge — OPTIONAL. FlameRealms's own economy (EconomyService)
         // works fully standalone; this exists purely so other plugins that
@@ -149,6 +238,7 @@ public final class FlameRealmsPlugin extends JavaPlugin {
             try {
                 realmCache.loadAll(connection);
                 realmCache.loadClaims(connection);
+                realmCache.loadNexusLocations(connection);
                 return null;
             } catch (SQLException e) {
                 throw new RuntimeException("Failed to warm the realm cache", e);
@@ -189,11 +279,7 @@ public final class FlameRealmsPlugin extends JavaPlugin {
     }
 
     private LiteralCommandNode<CommandSourceStack> buildRealmCommand() {
-        return new RealmCommand(
-                this, realmService, economyService, treasuryService,
-                claimService, claimVisualizationService, territoryMapService,
-                asyncDatabaseExecutor, realmMemberDao, realmRankDao,
-                realmCache, pricingConfig, messages).build();
+        return new RealmCommand(this, realmService, messages, realmActions, openMainMenu).build();
     }
 
     @Override

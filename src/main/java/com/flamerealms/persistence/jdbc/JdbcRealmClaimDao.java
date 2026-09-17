@@ -11,6 +11,7 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Plain JDBC {@link RealmClaimDao} implementation. No ORM — hand-written
@@ -31,6 +32,10 @@ public final class JdbcRealmClaimDao implements RealmClaimDao {
 
     private static final String FIND_ALL =
             "SELECT id, realm_id, world, chunk_x, chunk_z, claimed_at, price_paid_cents FROM realm_claims";
+
+    private static final String FIND_MOST_RECENT_BY_REALM =
+            "SELECT id, realm_id, world, chunk_x, chunk_z, claimed_at, price_paid_cents "
+                    + "FROM realm_claims WHERE realm_id = ? ORDER BY claimed_at DESC LIMIT 1";
 
     private static final String DELETE =
             "DELETE FROM realm_claims WHERE realm_id = ? AND world = ? AND chunk_x = ? AND chunk_z = ?";
@@ -91,6 +96,16 @@ public final class JdbcRealmClaimDao implements RealmClaimDao {
                 claims.add(mapRow(resultSet));
             }
             return claims;
+        }
+    }
+
+    @Override
+    public Optional<RealmClaim> findMostRecentByRealm(Connection connection, long realmId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(FIND_MOST_RECENT_BY_REALM)) {
+            statement.setLong(1, realmId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() ? Optional.of(mapRow(resultSet)) : Optional.empty();
+            }
         }
     }
 

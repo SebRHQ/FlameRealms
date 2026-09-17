@@ -6,7 +6,9 @@ import com.flamerealms.persistence.dao.RealmMemberDao;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -49,5 +51,16 @@ public final class FakeRealmMemberDao implements RealmMemberDao {
             membersByPlayer.put(playerUuid,
                     new RealmMember(existing.realmId(), existing.playerUuid(), rankId, existing.joinedAt()));
         }
+    }
+
+    @Override
+    public List<UUID> findAllPlayerUuids(Connection connection, long realmId) {
+        List<UUID> playerUuids = new ArrayList<>();
+        for (RealmMember member : membersByPlayer.values()) {
+            if (member.realmId() == realmId) {
+                playerUuids.add(member.playerUuid());
+            }
+        }
+        return playerUuids;
     }
 }

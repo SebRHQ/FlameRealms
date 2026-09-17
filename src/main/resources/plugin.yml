@@ -26,6 +26,10 @@ permissions:
       flamerealms.command.unclaim: true
       flamerealms.command.map: true
       flamerealms.command.borders: true
+      flamerealms.command.kick: true
+      flamerealms.command.setrank: true
+      flamerealms.command.transfer: true
+      flamerealms.command.menu: true
   flamerealms.command.create:
     description: Allows creating a realm.
     default: true
@@ -64,6 +68,18 @@ permissions:
     default: true
   flamerealms.command.borders:
     description: Allows toggling a persistent particle outline of your realm's territory.
+    default: true
+  flamerealms.command.kick:
+    description: Allows kicking a member from your realm (still separately gated by the KICK realm-rank permission).
+    default: true
+  flamerealms.command.setrank:
+    description: Allows changing a member's rank in your realm (still separately gated by the MANAGE_RANKS realm-rank permission).
+    default: true
+  flamerealms.command.transfer:
+    description: Allows a realm's leader to transfer leadership to another member.
+    default: true
+  flamerealms.command.menu:
+    description: Allows opening the FlameRealms chest-GUI menu.
     default: true
   flamerealms.admin:
     description: Reserved for future FlameRealms admin commands. Not used by any command yet.

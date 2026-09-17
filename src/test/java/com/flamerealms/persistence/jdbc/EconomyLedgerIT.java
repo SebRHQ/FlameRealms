@@ -282,7 +282,7 @@ class EconomyLedgerIT {
     private Realm insertRealm() throws SQLException {
         try (Connection connection = dataSource.getConnection()) {
             return realmDao.insert(connection, new Realm(
-                    0L, uniqueName("ledger-it"), "Ledger IT", UUID.randomUUID(), 1, Instant.now(), null));
+                    0L, uniqueName("ledger-it"), "Ledger IT", UUID.randomUUID(), 1, Instant.now(), null, null, null, null, null));
         }
     }
 

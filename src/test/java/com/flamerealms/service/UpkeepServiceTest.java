@@ -2,8 +2,10 @@ package com.flamerealms.service;
 
 import com.flamerealms.cache.RealmCache;
 import com.flamerealms.config.PricingConfig;
+import com.flamerealms.domain.ChunkCoordinate;
 import com.flamerealms.domain.LedgerEntity;
 import com.flamerealms.domain.Realm;
+import com.flamerealms.domain.RealmClaim;
 import com.flamerealms.domain.TransactionCategory;
 import com.flamerealms.domain.TransactionRecord;
 import com.flamerealms.persistence.AsyncDatabaseExecutor;
@@ -13,13 +15,20 @@ import com.flamerealms.service.fake.FakeRealmClaimDao;
 import com.flamerealms.service.fake.FakeRealmDao;
 import com.flamerealms.service.fake.FakeRealmMemberActivityDao;
 
+import org.bukkit.Bukkit;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitScheduler;
+import org.bukkit.scheduler.BukkitTask;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.sql.Connection;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.logging.Logger;
@@ -27,15 +36,24 @@ import java.util.logging.Logger;
 import static com.flamerealms.service.support.InlineAsyncDatabaseExecutors.fakeConnection;
 import static com.flamerealms.service.support.InlineAsyncDatabaseExecutors.inline;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link UpkeepService}.
  *
  * <p>Exercises the daily upkeep charge (see class Javadoc's "Debt
- * accounting" section) through {@code runUpkeepCycle()} directly, bypassing
- * Bukkit's scheduler entirely — {@code start()}/{@code stop()} are the only
- * methods here that touch {@code Bukkit.getScheduler()}, and this suite
- * never calls them. Same fake-DAO + {@code InlineAsyncDatabaseExecutors}
+ * accounting" and "Upkeep-debt chunk release" sections) through {@code
+ * runUpkeepCycle()} directly, bypassing Bukkit's scheduler entirely for
+ * {@code start()}/{@code stop()} — this suite never calls either. {@code
+ * chargeUpkeep(...)} can now ALSO touch {@code Bukkit.getScheduler()}, but
+ * only on the branch that actually releases a claim (see the class Javadoc's
+ * "The {@code onClaimReleased} callback" section), so {@code Bukkit} is
+ * stubbed via {@link Mockito#mockStatic} the same way {@code
+ * RealmActionsTest} already does, to run the given {@link Runnable}
+ * immediately rather than reaching for a real (nonexistent, in this test
+ * process) Bukkit server. Same fake-DAO + {@code InlineAsyncDatabaseExecutors}
  * approach as {@code TreasuryServiceImplTest}/{@code RealmServiceImplTest}.
  */
 final class UpkeepServiceTest {
@@ -48,8 +66,14 @@ final class UpkeepServiceTest {
     private FakeLedgerDao ledgerDao;
     private PricingConfig pricingConfig;
     private UpkeepService service;
+    private List<ReleasedClaim> releasedClaims;
+    private MockedStatic<Bukkit> bukkitStatic;
 
     private static final long COST_PER_CHUNK_CENTS = 100L;
+
+    /** One recorded {@code onClaimReleased} invocation. */
+    private record ReleasedClaim(String realmId, ChunkCoordinate coordinate) {
+    }
 
     @BeforeEach
     void setUp() {
@@ -59,6 +83,7 @@ final class UpkeepServiceTest {
         realmMemberActivityDao = new FakeRealmMemberActivityDao();
         realmDao = new FakeRealmDao();
         ledgerDao = new FakeLedgerDao(new FakePlayerWalletDao(), realmDao);
+        releasedClaims = new ArrayList<>();
 
         pricingConfig = new PricingConfig(
                 List.of(new PricingConfig.PriceTier(Integer.MAX_VALUE, 1000L)),
@@ -69,7 +94,9 @@ final class UpkeepServiceTest {
                 60,
                 7,
                 10.0,
-                0.5
+                0.5,
+                50000L,
+                3
         );
 
         JavaPlugin plugin = Mockito.mock(JavaPlugin.class);
@@ -78,13 +105,30 @@ final class UpkeepServiceTest {
         AsyncDatabaseExecutor asyncDatabaseExecutor = inline(connection);
         service = new UpkeepService(
                 plugin, realmCache, realmClaimDao, realmMemberActivityDao, realmDao,
-                ledgerDao, asyncDatabaseExecutor, pricingConfig);
+                ledgerDao, asyncDatabaseExecutor, pricingConfig,
+                (realmId, coordinate) -> releasedClaims.add(new ReleasedClaim(realmId, coordinate)));
+
+        // Only exercised by chargeUpkeep(...)'s claim-release branch — see
+        // this class's own Javadoc.
+        bukkitStatic = Mockito.mockStatic(Bukkit.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
+        when(scheduler.runTask(any(Plugin.class), any(Runnable.class))).thenAnswer(invocation -> {
+            Runnable runnable = invocation.getArgument(1);
+            runnable.run();
+            return mock(BukkitTask.class);
+        });
+        bukkitStatic.when(Bukkit::getScheduler).thenReturn(scheduler);
+    }
+
+    @AfterEach
+    void tearDown() {
+        bukkitStatic.close();
     }
 
     private long createRealm(String name) {
         try {
             Realm inserted = realmDao.insert(connection,
-                    new Realm(0L, name, name, UUID.randomUUID(), 1, Instant.now(), null));
+                    new Realm(0L, name, name, UUID.randomUUID(), 1, Instant.now(), null, null, null, null, null));
             realmCache.put(inserted);
             return inserted.id();
         } catch (java.sql.SQLException e) {
@@ -225,5 +269,68 @@ final class UpkeepServiceTest {
         assertThat(realmDao.findUpkeepDebt(connection, poorRealmId))
                 .isEqualTo(service.computeDailyUpkeepCents(5, 0));
         assertThat(ledgerDao.entries()).hasSize(1); // only the rich realm's charge landed
+    }
+
+    @Test
+    void resetsUnpaidCyclesWhenPaymentSucceeds() {
+        long realmId = createRealm("recovering");
+        realmClaimDao.seedClaims(realmId, 2);
+        realmDao.incrementUnpaidUpkeepCycles(connection, realmId);
+        realmDao.incrementUnpaidUpkeepCycles(connection, realmId); // 2 prior failed cycles
+        realmDao.tryAdjustBalance(connection, realmId, 100_000L); // plenty of treasury this time
+
+        service.runUpkeepCycle().join();
+
+        assertThat(realmDao.findUnpaidUpkeepCycles(connection, realmId)).isZero();
+        assertThat(releasedClaims).isEmpty();
+    }
+
+    @Test
+    void releasesTheMostRecentClaimAndInvokesTheCallbackOnceUnpaidCyclesExceedTheThreshold() {
+        long realmId = createRealm("chronicDebtor");
+        Instant older = Instant.now().minusSeconds(60);
+        Instant mostRecent = Instant.now();
+        realmClaimDao.insert(connection, new RealmClaim(0L, realmId, "world", 0, 0, older, 0L));
+        realmClaimDao.insert(connection, new RealmClaim(0L, realmId, "world", 1, 0, mostRecent, 0L));
+        realmCache.addClaim(realmId, new ChunkCoordinate("world", 0, 0));
+        realmCache.addClaim(realmId, new ChunkCoordinate("world", 1, 0));
+        // No treasury balance deposited: every cycle below fails to pay.
+
+        // debtReleaseThresholdCycles is 3 - the first 3 failed cycles must
+        // NOT release anything (unpaidCyclesNow == 1, 2, 3, none > 3).
+        for (int cycle = 0; cycle < 3; cycle++) {
+            service.runUpkeepCycle().join();
+        }
+        assertThat(realmClaimDao.findByRealm(connection, realmId)).hasSize(2);
+        assertThat(releasedClaims).isEmpty();
+
+        // The 4th consecutive failed cycle pushes unpaidCyclesNow to 4 > 3 -
+        // exactly one claim (the most recently claimed one) is released.
+        service.runUpkeepCycle().join();
+
+        List<RealmClaim> remaining = realmClaimDao.findByRealm(connection, realmId);
+        assertThat(remaining).hasSize(1);
+        assertThat(remaining.get(0).coordinate()).isEqualTo(new ChunkCoordinate("world", 0, 0));
+
+        assertThat(realmCache.claimsOf(realmId)).containsExactly(new ChunkCoordinate("world", 0, 0));
+
+        assertThat(releasedClaims).hasSize(1);
+        assertThat(releasedClaims.get(0).realmId()).isEqualTo(String.valueOf(realmId));
+        assertThat(releasedClaims.get(0).coordinate()).isEqualTo(new ChunkCoordinate("world", 1, 0));
+    }
+
+    @Test
+    void skipsReleaseSilentlyWhenTheRealmHasNoClaimsLeft() {
+        long realmId = createRealm("claimless");
+        realmDao.incrementUpkeepDebt(connection, realmId, 500L); // pre-existing debt, but zero claims
+        // No treasury balance: every cycle fails to pay off that debt.
+
+        for (int cycle = 0; cycle < 4; cycle++) {
+            service.runUpkeepCycle().join();
+        }
+
+        assertThat(realmDao.findUnpaidUpkeepCycles(connection, realmId)).isEqualTo(4);
+        assertThat(realmClaimDao.findByRealm(connection, realmId)).isEmpty();
+        assertThat(releasedClaims).isEmpty();
     }
 }

@@ -1,5 +1,6 @@
 package com.flamerealms.cache;
 
+import com.flamerealms.domain.BlockCoordinate;
 import com.flamerealms.domain.ChunkCoordinate;
 import com.flamerealms.domain.Realm;
 import com.flamerealms.util.UuidCodec;
@@ -25,9 +26,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Backed by five {@link ConcurrentHashMap}s: realm id -&gt; {@link Realm},
  * lowercased realm name -&gt; realm id, player UUID -&gt; realm id, realm id
  * -&gt; that realm's claimed {@link ChunkCoordinate}s, and the reverse index
- * {@link ChunkCoordinate} -&gt; owning realm id. Name lookups are
- * case-insensitive because realm names are, per the rest of the plugin's
- * convention of treating them as case-insensitive unique handles.
+ * {@link ChunkCoordinate} -&gt; owning realm id — plus a sixth structure, a
+ * plain {@code Set<}{@link com.flamerealms.domain.BlockCoordinate}{@code >} of
+ * every active realm's Nexus block. Name lookups are case-insensitive because
+ * realm names are, per the rest of the plugin's convention of treating them
+ * as case-insensitive unique handles.
  *
  * <p><b>Write-through, never optimistic.</b> Every mutator on this class
  * (everything below the read methods) is meant to be called by
@@ -35,9 +38,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code AsyncDatabaseExecutor.submit(...)} call — i.e. strictly after the
  * corresponding database transaction has already committed. Nothing here
  * ever gets written speculatively before a commit, and nothing here talks to
- * the database on the calling (read) path — {@link #loadAll(Connection)} and
- * {@link #loadClaims(Connection)} are the two exceptions, and they exist
- * solely to warm the cache once at startup.
+ * the database on the calling (read) path — {@link #loadAll(Connection)},
+ * {@link #loadClaims(Connection)} and {@link #loadNexusLocations(Connection)}
+ * are the exceptions, and they exist solely to warm the cache once at startup.
  */
 public final class RealmCache {
 
@@ -54,13 +57,26 @@ public final class RealmCache {
     private final Map<Long, Set<ChunkCoordinate>> claimsByRealm = new ConcurrentHashMap<>();
     private final Map<ChunkCoordinate, Long> realmIdByClaim = new ConcurrentHashMap<>();
 
+    // Every active realm's Nexus block, tracked purely as "is this exact
+    // block ANY realm's Nexus" for NexusProtectionListener's indestructibility
+    // check — unlike claimsByRealm/realmIdByClaim above, nothing here needs
+    // to answer "which realm owns this Nexus", so a single Set is enough (no
+    // reverse index, no per-realm grouping). A plain Set<BlockCoordinate>, not
+    // a chunk-keyed structure: a Nexus is one exact block, not a whole chunk,
+    // and two different realms' Nexuses could in principle sit inside the
+    // same chunk. Populated by loadNexusLocations(...) at startup and kept
+    // current write-through by addNexus/removeNexus, same contract as every
+    // other mutator on this class.
+    private final Set<BlockCoordinate> nexusLocations = ConcurrentHashMap.newKeySet();
+
     // Only active realms matter to the cache — a disbanded realm has no
     // pending reads to serve. RealmDao/RealmMemberDao expose no bulk "find
     // all" query (by design, their contract is single-row lookups only), so
     // this warm-up reads directly via JDBC rather than growing that
     // contract for a one-time startup path.
     private static final String LOAD_REALMS =
-            "SELECT id, name, display_name, leader_uuid, level, created_at, disbanded_at "
+            "SELECT id, name, display_name, leader_uuid, level, created_at, disbanded_at, "
+                    + "nexus_world, nexus_x, nexus_y, nexus_z "
                     + "FROM realms WHERE disbanded_at IS NULL";
 
     private static final String LOAD_MEMBERS =
@@ -74,6 +90,15 @@ public final class RealmCache {
     // realms/members directly instead of going through RealmDao/RealmMemberDao.
     private static final String LOAD_CLAIMS =
             "SELECT realm_id, world, chunk_x, chunk_z FROM realm_claims";
+
+    // Only active, nexus-having realms matter here — a disbanded realm's
+    // Nexus is no longer indestructible (see RealmServiceImpl#disbandRealm's
+    // removeNexus(...) call), and a realm created before V4__nexus_and_management.sql
+    // has all four nexus columns NULL (see Realm's own Javadoc), which this
+    // WHERE clause excludes rather than trying to track a "no nexus" entry.
+    private static final String LOAD_NEXUS_LOCATIONS =
+            "SELECT nexus_world, nexus_x, nexus_y, nexus_z FROM realms "
+                    + "WHERE disbanded_at IS NULL AND nexus_world IS NOT NULL";
 
     /**
      * Warm-populates this cache from the database, replacing whatever it
@@ -143,6 +168,32 @@ public final class RealmCache {
         }
     }
 
+    /**
+     * Warm-populates this cache's Nexus-location tracking from {@code
+     * realms}, replacing whatever it currently holds. A sibling to {@link
+     * #loadAll}/{@link #loadClaims}, not merged into either: same reasoning
+     * as {@link #loadClaims}'s own Javadoc for why this is its own method the
+     * plugin bootstrap calls on its own. Intended to be called exactly once,
+     * during {@code onEnable()}, dispatched through {@code
+     * AsyncDatabaseExecutor.submit(...)} alongside {@link #loadAll}/{@link
+     * #loadClaims} — the plugin must not consider {@link #isNexus} reliable
+     * until the future that call returns has completed successfully.
+     */
+    public void loadNexusLocations(Connection connection) throws SQLException {
+        nexusLocations.clear();
+
+        try (PreparedStatement statement = connection.prepareStatement(LOAD_NEXUS_LOCATIONS);
+             ResultSet resultSet = statement.executeQuery()) {
+            while (resultSet.next()) {
+                nexusLocations.add(new BlockCoordinate(
+                        resultSet.getString("nexus_world"),
+                        resultSet.getInt("nexus_x"),
+                        resultSet.getInt("nexus_y"),
+                        resultSet.getInt("nexus_z")));
+            }
+        }
+    }
+
     // -- Reads -----------------------------------------------------------
 
     /** Looks up a cached realm by its id. */
@@ -181,6 +232,16 @@ public final class RealmCache {
     /** Looks up which realm (if any) owns a claimed chunk. */
     public Optional<Long> ownerOf(ChunkCoordinate coordinate) {
         return Optional.ofNullable(realmIdByClaim.get(coordinate));
+    }
+
+    /**
+     * Whether {@code location} is any currently-active realm's Nexus block.
+     * O(1) lookup, backing {@code NexusProtectionListener}'s indestructibility
+     * check — it deliberately does not say WHICH realm owns it, since "is
+     * this exact block ANY realm's Nexus" is all that check needs.
+     */
+    public boolean isNexus(BlockCoordinate location) {
+        return nexusLocations.contains(location);
     }
 
     /**
@@ -272,6 +333,25 @@ public final class RealmCache {
         }
     }
 
+    /**
+     * Records {@code location} as an active realm's Nexus block. Called after
+     * a transaction that inserts a realm row with its nexus columns set has
+     * committed — see {@code RealmServiceImpl#createRealm}.
+     */
+    public void addNexus(BlockCoordinate location) {
+        nexusLocations.add(location);
+    }
+
+    /**
+     * Forgets a Nexus block — it becomes an ordinary, breakable block again.
+     * Called after a disband transaction has committed — see {@code
+     * RealmServiceImpl#disbandRealm}. A no-op if {@code location} was not (or
+     * no longer) cached.
+     */
+    public void removeNexus(BlockCoordinate location) {
+        nexusLocations.remove(location);
+    }
+
     private static String lowercase(String name) {
         return name.toLowerCase(Locale.ROOT);
     }
@@ -285,7 +365,11 @@ public final class RealmCache {
                 UuidCodec.fromBytes(resultSet.getBytes("leader_uuid")),
                 resultSet.getInt("level"),
                 resultSet.getTimestamp("created_at").toInstant(),
-                disbandedAt == null ? null : disbandedAt.toInstant()
+                disbandedAt == null ? null : disbandedAt.toInstant(),
+                resultSet.getString("nexus_world"),
+                (Integer) resultSet.getObject("nexus_x"),
+                (Integer) resultSet.getObject("nexus_y"),
+                (Integer) resultSet.getObject("nexus_z")
         );
     }
 }

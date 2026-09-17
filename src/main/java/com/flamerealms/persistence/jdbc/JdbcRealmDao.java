@@ -22,19 +22,24 @@ import java.util.UUID;
 public final class JdbcRealmDao implements RealmDao {
 
     private static final String INSERT =
-            "INSERT INTO realms (name, display_name, leader_uuid, level, created_at, disbanded_at) "
-                    + "VALUES (?, ?, ?, ?, ?, ?)";
+            "INSERT INTO realms "
+                    + "(name, display_name, leader_uuid, level, created_at, disbanded_at, "
+                    + "nexus_world, nexus_x, nexus_y, nexus_z) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String FIND_BY_ID =
-            "SELECT id, name, display_name, leader_uuid, level, created_at, disbanded_at "
+            "SELECT id, name, display_name, leader_uuid, level, created_at, disbanded_at, "
+                    + "nexus_world, nexus_x, nexus_y, nexus_z "
                     + "FROM realms WHERE id = ?";
 
     private static final String FIND_BY_NAME =
-            "SELECT id, name, display_name, leader_uuid, level, created_at, disbanded_at "
+            "SELECT id, name, display_name, leader_uuid, level, created_at, disbanded_at, "
+                    + "nexus_world, nexus_x, nexus_y, nexus_z "
                     + "FROM realms WHERE name = ?";
 
     private static final String FIND_BY_PLAYER_UUID =
-            "SELECT r.id, r.name, r.display_name, r.leader_uuid, r.level, r.created_at, r.disbanded_at "
+            "SELECT r.id, r.name, r.display_name, r.leader_uuid, r.level, r.created_at, r.disbanded_at, "
+                    + "r.nexus_world, r.nexus_x, r.nexus_y, r.nexus_z "
                     + "FROM realms r "
                     + "JOIN realm_members m ON m.realm_id = r.id "
                     + "WHERE m.player_uuid = ?";
@@ -60,6 +65,18 @@ public final class JdbcRealmDao implements RealmDao {
     private static final String INCREMENT_UPKEEP_DEBT =
             "UPDATE realms SET upkeep_debt_cents = upkeep_debt_cents + ? WHERE id = ?";
 
+    private static final String INCREMENT_UNPAID_UPKEEP_CYCLES =
+            "UPDATE realms SET upkeep_unpaid_cycles = upkeep_unpaid_cycles + 1 WHERE id = ?";
+
+    private static final String RESET_UNPAID_UPKEEP_CYCLES =
+            "UPDATE realms SET upkeep_unpaid_cycles = 0 WHERE id = ?";
+
+    private static final String FIND_UNPAID_UPKEEP_CYCLES =
+            "SELECT upkeep_unpaid_cycles FROM realms WHERE id = ?";
+
+    private static final String UPDATE_LEADER =
+            "UPDATE realms SET leader_uuid = ? WHERE id = ?";
+
     @Override
     public Realm insert(Connection connection, Realm realm) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(INSERT, Statement.RETURN_GENERATED_KEYS)) {
@@ -69,6 +86,10 @@ public final class JdbcRealmDao implements RealmDao {
             statement.setInt(4, realm.level());
             statement.setTimestamp(5, Timestamp.from(realm.createdAt()));
             setNullableTimestamp(statement, 6, realm.disbandedAt());
+            statement.setString(7, realm.nexusWorld());
+            setNullableInt(statement, 8, realm.nexusX());
+            setNullableInt(statement, 9, realm.nexusY());
+            setNullableInt(statement, 10, realm.nexusZ());
 
             statement.executeUpdate();
 
@@ -76,7 +97,8 @@ public final class JdbcRealmDao implements RealmDao {
                 keys.next();
                 long id = keys.getLong(1);
                 return new Realm(id, realm.name(), realm.displayName(), realm.leaderUuid(),
-                        realm.level(), realm.createdAt(), realm.disbandedAt());
+                        realm.level(), realm.createdAt(), realm.disbandedAt(),
+                        realm.nexusWorld(), realm.nexusX(), realm.nexusY(), realm.nexusZ());
             }
         }
     }
@@ -181,12 +203,58 @@ public final class JdbcRealmDao implements RealmDao {
         }
     }
 
+    @Override
+    public void incrementUnpaidUpkeepCycles(Connection connection, long realmId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(INCREMENT_UNPAID_UPKEEP_CYCLES)) {
+            statement.setLong(1, realmId);
+            statement.executeUpdate();
+        }
+    }
+
+    @Override
+    public void resetUnpaidUpkeepCycles(Connection connection, long realmId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(RESET_UNPAID_UPKEEP_CYCLES)) {
+            statement.setLong(1, realmId);
+            statement.executeUpdate();
+        }
+    }
+
+    @Override
+    public int findUnpaidUpkeepCycles(Connection connection, long realmId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(FIND_UNPAID_UPKEEP_CYCLES)) {
+            statement.setLong(1, realmId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    throw new IllegalStateException("No realm with id " + realmId);
+                }
+                return resultSet.getInt("upkeep_unpaid_cycles");
+            }
+        }
+    }
+
+    @Override
+    public void updateLeader(Connection connection, long realmId, UUID newLeaderUuid) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(UPDATE_LEADER)) {
+            statement.setBytes(1, UuidCodec.toBytes(newLeaderUuid));
+            statement.setLong(2, realmId);
+            statement.executeUpdate();
+        }
+    }
+
     private static void setNullableTimestamp(PreparedStatement statement, int index, Instant instant)
             throws SQLException {
         if (instant == null) {
             statement.setNull(index, Types.TIMESTAMP);
         } else {
             statement.setTimestamp(index, Timestamp.from(instant));
+        }
+    }
+
+    private static void setNullableInt(PreparedStatement statement, int index, Integer value) throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.INTEGER);
+        } else {
+            statement.setInt(index, value);
         }
     }
 
@@ -199,7 +267,11 @@ public final class JdbcRealmDao implements RealmDao {
                 UuidCodec.fromBytes(resultSet.getBytes("leader_uuid")),
                 resultSet.getInt("level"),
                 resultSet.getTimestamp("created_at").toInstant(),
-                disbandedAt == null ? null : disbandedAt.toInstant()
+                disbandedAt == null ? null : disbandedAt.toInstant(),
+                resultSet.getString("nexus_world"),
+                (Integer) resultSet.getObject("nexus_x"),
+                (Integer) resultSet.getObject("nexus_y"),
+                (Integer) resultSet.getObject("nexus_z")
         );
     }
 }

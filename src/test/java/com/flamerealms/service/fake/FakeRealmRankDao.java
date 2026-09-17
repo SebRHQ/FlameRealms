@@ -6,7 +6,9 @@ import com.flamerealms.persistence.dao.RealmRankDao;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -51,5 +53,13 @@ public final class FakeRealmRankDao implements RealmRankDao {
     @Override
     public Optional<RealmRank> findById(Connection connection, long rankId) {
         return Optional.ofNullable(ranksById.get(rankId));
+    }
+
+    @Override
+    public List<RealmRank> findAllByRealm(Connection connection, long realmId) {
+        return ranksById.values().stream()
+                .filter(r -> r.realmId() == realmId)
+                .sorted(Comparator.comparingInt(RealmRank::priority).reversed())
+                .toList();
     }
 }

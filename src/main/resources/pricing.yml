@@ -4,6 +4,10 @@
 # lookup, territory-upkeep multiplier, active-population multiplier) live in
 # the service layer — this file supplies the numbers, not the curve shape.
 
+realm-creation:
+  # One-time fee (in cents) charged to found a new realm.
+  fee-cents: 50000
+
 claims:
   # Purchase price (in cents) for a realm's Nth claim, where N is the claim
   # count AFTER this purchase (existing-count + 1). A tier's "max-claims" is
@@ -21,6 +25,11 @@ claims:
 
 upkeep:
   cost-per-chunk-cents: 2000
+
+  # Number of consecutive fully-failed upkeep cycles
+  # (realms.upkeep_unpaid_cycles) a realm can accrue before its claimed
+  # territory is released back to the world (see UpkeepService).
+  debt-release-threshold-cycles: 3
 
   # Territory-size multiplier applied to base upkeep, tiered the same way as
   # purchase-tiers above (inclusive max-claims, first matching tier in list

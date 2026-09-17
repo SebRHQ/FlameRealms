@@ -30,6 +30,7 @@ public final class AsyncDatabaseExecutor {
 
     private final DataSource dataSource;
     private final ExecutorService executor;
+    private final boolean available;
 
     /**
      * @param databaseManager the manager whose pooled {@link DataSource} this
@@ -41,6 +42,25 @@ public final class AsyncDatabaseExecutor {
     public AsyncDatabaseExecutor(DatabaseManager databaseManager, int poolSize) {
         this.dataSource = databaseManager.dataSource();
         this.executor = Executors.newFixedThreadPool(poolSize, AsyncDatabaseExecutor::newDatabaseThread);
+        this.available = true;
+    }
+
+    private AsyncDatabaseExecutor() {
+        this.dataSource = null;
+        this.executor = null;
+        this.available = false;
+    }
+
+    /**
+     * Builds an executor with no real {@link DataSource} or thread pool at
+     * all — used when {@code DatabaseManager} could not be constructed
+     * during {@code onEnable()} (HikariCP could not connect, or Flyway could
+     * not migrate). Every {@link #submit(Function)} call on the returned
+     * instance fails immediately with a {@link DatabaseUnavailableException},
+     * and {@link #shutdown(Duration)} is a safe no-op.
+     */
+    public static AsyncDatabaseExecutor unavailable() {
+        return new AsyncDatabaseExecutor();
     }
 
     private static Thread newDatabaseThread(Runnable runnable) {
@@ -65,6 +85,12 @@ public final class AsyncDatabaseExecutor {
      *             future exceptionally
      */
     public <T> CompletableFuture<T> submit(Function<Connection, T> work) {
+        if (!available) {
+            return CompletableFuture.failedFuture(new DatabaseUnavailableException(
+                    "The database is unavailable — FlameRealms is running in degraded mode "
+                            + "because it could not connect or migrate at startup."));
+        }
+
         CompletableFuture<T> future = new CompletableFuture<>();
 
         try {
@@ -101,6 +127,10 @@ public final class AsyncDatabaseExecutor {
      * connection that no longer exists.
      */
     public void shutdown(Duration timeout) {
+        if (!available) {
+            return;
+        }
+
         executor.shutdown();
         try {
             if (!executor.awaitTermination(timeout.toMillis(), TimeUnit.MILLISECONDS)) {

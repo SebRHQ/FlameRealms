@@ -4,6 +4,7 @@ import com.flamerealms.domain.RealmMember;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,4 +37,7 @@ public interface RealmMemberDao {
 
     /** Changes a member's rank within their realm. */
     void updateRank(Connection connection, long realmId, UUID playerUuid, long rankId) throws SQLException;
+
+    /** Every player UUID currently belonging to {@code realmId}. Empty (never {@code null}) if it has none. */
+    List<UUID> findAllPlayerUuids(Connection connection, long realmId) throws SQLException;
 }

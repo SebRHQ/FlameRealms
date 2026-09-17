@@ -80,7 +80,7 @@ final class TreasuryServiceImplTest {
         ledgerDao = new FakeLedgerDao(walletDao, realmDao);
 
         Realm realm = realmDao.insert(connection,
-                new Realm(0L, "ember", "Ember", UUID.randomUUID(), 1, Instant.now(), null));
+                new Realm(0L, "ember", "Ember", UUID.randomUUID(), 1, Instant.now(), null, null, null, null, null));
         realmId = realm.id();
         realmCache.put(realm);
 

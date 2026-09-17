@@ -28,6 +28,7 @@ public final class FakeRealmDao implements RealmDao {
     private final Map<Long, Realm> realmsById = new LinkedHashMap<>();
     private final Map<Long, Long> balancesById = new LinkedHashMap<>();
     private final Map<Long, Long> upkeepDebtById = new LinkedHashMap<>();
+    private final Map<Long, Integer> unpaidUpkeepCyclesById = new LinkedHashMap<>();
     private long nextId = 1;
 
     @Override
@@ -41,10 +42,12 @@ public final class FakeRealmDao implements RealmDao {
 
         Realm inserted = new Realm(
                 nextId++, realm.name(), realm.displayName(), realm.leaderUuid(),
-                realm.level(), realm.createdAt(), realm.disbandedAt());
+                realm.level(), realm.createdAt(), realm.disbandedAt(),
+                realm.nexusWorld(), realm.nexusX(), realm.nexusY(), realm.nexusZ());
         realmsById.put(inserted.id(), inserted);
         balancesById.put(inserted.id(), 0L);
         upkeepDebtById.put(inserted.id(), 0L);
+        unpaidUpkeepCyclesById.put(inserted.id(), 0);
         return inserted;
     }
 
@@ -73,7 +76,8 @@ public final class FakeRealmDao implements RealmDao {
         if (existing != null) {
             realmsById.put(realmId, new Realm(
                     existing.id(), existing.name(), existing.displayName(), existing.leaderUuid(),
-                    existing.level(), existing.createdAt(), disbandedAt));
+                    existing.level(), existing.createdAt(), disbandedAt,
+                    existing.nexusWorld(), existing.nexusX(), existing.nexusY(), existing.nexusZ()));
         }
     }
 
@@ -82,6 +86,7 @@ public final class FakeRealmDao implements RealmDao {
         realmsById.remove(realmId);
         balancesById.remove(realmId);
         upkeepDebtById.remove(realmId);
+        unpaidUpkeepCyclesById.remove(realmId);
     }
 
     @Override
@@ -128,6 +133,41 @@ public final class FakeRealmDao implements RealmDao {
         Long current = upkeepDebtById.get(realmId);
         if (current != null) {
             upkeepDebtById.put(realmId, current + deltaCents);
+        }
+    }
+
+    @Override
+    public void incrementUnpaidUpkeepCycles(Connection connection, long realmId) {
+        Integer current = unpaidUpkeepCyclesById.get(realmId);
+        if (current != null) {
+            unpaidUpkeepCyclesById.put(realmId, current + 1);
+        }
+    }
+
+    @Override
+    public void resetUnpaidUpkeepCycles(Connection connection, long realmId) {
+        if (unpaidUpkeepCyclesById.containsKey(realmId)) {
+            unpaidUpkeepCyclesById.put(realmId, 0);
+        }
+    }
+
+    @Override
+    public int findUnpaidUpkeepCycles(Connection connection, long realmId) {
+        Integer cycles = unpaidUpkeepCyclesById.get(realmId);
+        if (cycles == null) {
+            throw new IllegalStateException("No realm with id " + realmId);
+        }
+        return cycles;
+    }
+
+    @Override
+    public void updateLeader(Connection connection, long realmId, UUID newLeaderUuid) {
+        Realm existing = realmsById.get(realmId);
+        if (existing != null) {
+            realmsById.put(realmId, new Realm(
+                    existing.id(), existing.name(), existing.displayName(), newLeaderUuid,
+                    existing.level(), existing.createdAt(), existing.disbandedAt(),
+                    existing.nexusWorld(), existing.nexusX(), existing.nexusY(), existing.nexusZ()));
         }
     }
 }

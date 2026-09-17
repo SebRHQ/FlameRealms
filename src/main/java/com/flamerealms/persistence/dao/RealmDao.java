@@ -24,7 +24,11 @@ public interface RealmDao {
 
     /**
      * Inserts {@code realm} and returns it with the generated {@code id}
-     * populated. {@code realm.id()} is ignored on the way in.
+     * populated. {@code realm.id()} is ignored on the way in. {@code
+     * realm}'s nexus fields (see {@link Realm}'s Javadoc for their
+     * all-or-nothing nullability convention) are persisted as given — pass a
+     * realm with all four set to insert it with its nexus location already
+     * in place, atomically, in the same statement.
      */
     Realm insert(Connection connection, Realm realm) throws SQLException;
 
@@ -79,4 +83,34 @@ public interface RealmDao {
      * already-accounted-for existing debt (see {@code UpkeepService}).
      */
     void incrementUpkeepDebt(Connection connection, long realmId, long deltaCents) throws SQLException;
+
+    /**
+     * Increments a realm's consecutive-failed-upkeep-cycle counter
+     * ({@code realms.upkeep_unpaid_cycles}) by one, in a single
+     * {@code UPDATE ... SET upkeep_unpaid_cycles = upkeep_unpaid_cycles + 1}.
+     * Called alongside {@link #incrementUpkeepDebt} whenever a daily upkeep
+     * charge fails to fully pay off (see {@code UpkeepService}).
+     */
+    void incrementUnpaidUpkeepCycles(Connection connection, long realmId) throws SQLException;
+
+    /**
+     * Zeroes a realm's consecutive-failed-upkeep-cycle counter
+     * ({@code realms.upkeep_unpaid_cycles}). Called alongside
+     * {@link #resetUpkeepDebt} whenever a daily upkeep charge fully pays off
+     * (see {@code UpkeepService}).
+     */
+    void resetUnpaidUpkeepCycles(Connection connection, long realmId) throws SQLException;
+
+    /** Reads a realm's current consecutive-failed-upkeep-cycle count ({@code realms.upkeep_unpaid_cycles}). */
+    int findUnpaidUpkeepCycles(Connection connection, long realmId) throws SQLException;
+
+    /**
+     * Changes a realm's leader ({@code realms.leader_uuid}). Added for
+     * {@code RealmService#transferLeadership} — nothing else in this project
+     * needs to move a realm to a different leader. Callers are responsible
+     * for swapping the outgoing/incoming leaders' ranks in the same
+     * transaction (via {@code RealmMemberDao#updateRank}); this method only
+     * ever touches the {@code realms} row itself.
+     */
+    void updateLeader(Connection connection, long realmId, UUID newLeaderUuid) throws SQLException;
 }

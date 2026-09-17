@@ -2,6 +2,10 @@
 .gradle/
 build/
 
+# Claude Code local tool state (auto-persisted workflow scripts, etc. —
+# not project content; the real workflow scripts live in workflows/)
+.claude/
+
 # IDEs
 .idea/
 *.iml

@@ -1,0 +1,123 @@
+main-menu:
+  title: "<dark_gray>FlameRealms</dark_gray>"
+  size: 27
+  filler-material: GRAY_STAINED_GLASS_PANE
+  items:
+    info:
+      slot: 10
+      material: BOOK
+      name: "<gold>Realm Info</gold>"
+      lore: ["<gray>View your realm's info</gray>"]
+    create:
+      slot: 11
+      material: NETHER_STAR
+      name: "<gold>Create Realm</gold>"
+      lore: ["<gray>Found a new realm</gray>"]
+    invite:
+      slot: 12
+      material: PLAYER_HEAD
+      name: "<gold>Invite Player</gold>"
+      lore: ["<gray>Invite an online player</gray>"]
+    join:
+      slot: 13
+      material: WRITABLE_BOOK
+      name: "<gold>Join Realm</gold>"
+      lore: ["<gray>Browse and join a realm</gray>"]
+    leave:
+      slot: 14
+      material: IRON_DOOR
+      name: "<gold>Leave Realm</gold>"
+      lore: []
+    disband:
+      slot: 15
+      material: TNT
+      name: "<red>Disband Realm</red>"
+      lore: ["<gray>This cannot be undone</gray>"]
+    balance:
+      slot: 16
+      material: GOLD_INGOT
+      name: "<gold>Balance</gold>"
+      lore: []
+    kick:
+      slot: 17
+      material: LEATHER_BOOTS
+      name: "<red>Kick Member</red>"
+      lore: ["<gray>Remove a member from your realm</gray>"]
+    setrank:
+      slot: 18
+      material: NAME_TAG
+      name: "<gold>Set Rank</gold>"
+      lore: ["<gray>Change a member's rank</gray>"]
+    deposit:
+      slot: 19
+      material: HOPPER
+      name: "<gold>Deposit</gold>"
+      lore: []
+    withdraw:
+      slot: 20
+      material: CHEST
+      name: "<gold>Withdraw</gold>"
+      lore: []
+    claim:
+      slot: 21
+      material: GRASS_BLOCK
+      name: "<gold>Claim Chunk</gold>"
+      lore: ["<gray>Claim the chunk you're standing in</gray>"]
+    unclaim:
+      slot: 22
+      material: BARRIER
+      name: "<gold>Unclaim Chunk</gold>"
+      lore: ["<gray>Release the chunk you're standing in</gray>"]
+    map:
+      slot: 23
+      material: FILLED_MAP
+      name: "<gold>Territory Map</gold>"
+      lore: []
+    borders:
+      slot: 24
+      material: GLOWSTONE_DUST
+      name: "<gold>Toggle Borders</gold>"
+      lore: ["<gray>Toggle a persistent outline of your territory</gray>"]
+    transfer:
+      slot: 25
+      material: TOTEM_OF_UNDYING
+      name: "<gold>Transfer Leadership</gold>"
+      lore: ["<gray>Hand over the realm's leadership</gray>", "<gray>without disbanding it</gray>"]
+    close:
+      slot: 26
+      material: BARRIER
+      name: "<red>Close</red>"
+      lore: []
+
+confirm-menu:
+  title: "<dark_gray>Please Confirm</dark_gray>"
+  size: 27
+  filler-material: GRAY_STAINED_GLASS_PANE
+  confirm-slot: 11
+  confirm-material: LIME_WOOL
+  confirm-name: "<green>Confirm</green>"
+  cancel-slot: 15
+  cancel-material: RED_WOOL
+  cancel-name: "<red>Cancel</red>"
+
+amount-menu:
+  title: "<dark_gray>Choose an Amount</dark_gray>"
+  size: 27
+  filler-material: GRAY_STAINED_GLASS_PANE
+  preset-material: GOLD_NUGGET
+  preset-name: "<gold><amount></gold>"
+  presets-cents: [10000, 50000, 100000, 500000]
+  custom-slot: 22
+  custom-material: PAPER
+  custom-name: "<yellow>Custom Amount (type in chat)</yellow>"
+  cancel-slot: 26
+  cancel-material: BARRIER
+  cancel-name: "<red>Cancel</red>"
+
+list-menu:
+  title: "<dark_gray><list-title></dark_gray>"
+  size: 54
+  filler-material: GRAY_STAINED_GLASS_PANE
+  back-slot: 49
+  back-material: ARROW
+  back-name: "<gray>Back</gray>"
