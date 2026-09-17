@@ -1,0 +1,70 @@
+name: FlameRealms
+main: com.flamerealms.FlameRealmsPlugin
+version: '${project.version}'
+api-version: '1.21'
+author: SebRHQ
+description: FlameRealms — Realm and economy plugin for Paper/Purpur servers.
+
+depend: [WorldGuard]
+softdepend: [Vault, PlaceholderAPI, ItemsAdder, CustomNamePlates, WorldEdit]
+
+permissions:
+  flamerealms.command.*:
+    description: Grants access to every /realm subcommand.
+    default: true
+    children:
+      flamerealms.command.create: true
+      flamerealms.command.info: true
+      flamerealms.command.invite: true
+      flamerealms.command.join: true
+      flamerealms.command.leave: true
+      flamerealms.command.disband: true
+      flamerealms.command.balance: true
+      flamerealms.command.deposit: true
+      flamerealms.command.withdraw: true
+      flamerealms.command.claim: true
+      flamerealms.command.unclaim: true
+      flamerealms.command.map: true
+      flamerealms.command.borders: true
+  flamerealms.command.create:
+    description: Allows creating a realm.
+    default: true
+  flamerealms.command.info:
+    description: Allows viewing a realm's info.
+    default: true
+  flamerealms.command.invite:
+    description: Allows inviting players to your realm.
+    default: true
+  flamerealms.command.join:
+    description: Allows joining a realm you've been invited to.
+    default: true
+  flamerealms.command.leave:
+    description: Allows leaving your current realm.
+    default: true
+  flamerealms.command.disband:
+    description: Allows disbanding your own realm as its leader.
+    default: true
+  flamerealms.command.balance:
+    description: Allows checking your personal and realm treasury balance.
+    default: true
+  flamerealms.command.deposit:
+    description: Allows depositing money into your realm's treasury.
+    default: true
+  flamerealms.command.withdraw:
+    description: Allows withdrawing money from your realm's treasury (still separately gated by the WITHDRAW realm-rank permission).
+    default: true
+  flamerealms.command.claim:
+    description: Allows previewing and purchasing a claim for your realm (still separately gated by the CLAIM realm-rank permission).
+    default: true
+  flamerealms.command.unclaim:
+    description: Allows releasing a claim from your realm (still separately gated by the UNCLAIM realm-rank permission).
+    default: true
+  flamerealms.command.map:
+    description: Allows viewing the territory map around you.
+    default: true
+  flamerealms.command.borders:
+    description: Allows toggling a persistent particle outline of your realm's territory.
+    default: true
+  flamerealms.admin:
+    description: Reserved for future FlameRealms admin commands. Not used by any command yet.
+    default: op

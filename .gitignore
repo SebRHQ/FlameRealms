@@ -1,0 +1,34 @@
+# Gradle
+.gradle/
+build/
+
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+bin/
+
+# Local Paper/Purpur test server runs (world data, server jars, plugin configs generated at runtime)
+run/
+server/
+
+# Any stray jar anywhere, except the Gradle wrapper jar the build needs
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+hs_err_pid*
+
+# Local overrides / secrets
+local.properties
+*.env

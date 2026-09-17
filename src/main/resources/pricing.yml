@@ -1,0 +1,44 @@
+# FlameRealms claim/territory pricing
+#
+# Tuning constants only. The formulas that consume these (purchase price
+# lookup, territory-upkeep multiplier, active-population multiplier) live in
+# the service layer — this file supplies the numbers, not the curve shape.
+
+claims:
+  # Purchase price (in cents) for a realm's Nth claim, where N is the claim
+  # count AFTER this purchase (existing-count + 1). A tier's "max-claims" is
+  # inclusive: N falls into the first tier (in list order) whose max-claims
+  # is >= N.
+  purchase-tiers:
+    - max-claims: 10
+      price-cents: 25000
+    - max-claims: 25
+      price-cents: 40000
+    - max-claims: 50
+      price-cents: 60000
+    - max-claims: 2147483647
+      price-cents: 100000
+
+upkeep:
+  cost-per-chunk-cents: 2000
+
+  # Territory-size multiplier applied to base upkeep, tiered the same way as
+  # purchase-tiers above (inclusive max-claims, first matching tier in list
+  # order wins).
+  territory-multiplier-tiers:
+    - max-claims: 10
+      multiplier: 1.0
+    - max-claims: 25
+      multiplier: 1.15
+    - max-claims: 50
+      multiplier: 1.35
+    - max-claims: 2147483647
+      multiplier: 1.6
+
+  # Tuning constants for the active-population multiplier. The exact
+  # saturating formula is chosen in the service layer, not here.
+  active-population:
+    presence-threshold-minutes: 60
+    rolling-window-days: 7
+    saturation-constant: 8.0
+    max-multiplier-bonus: 0.5

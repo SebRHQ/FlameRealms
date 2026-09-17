@@ -1,0 +1,27 @@
+# FlameRealms configuration
+#
+# NOTE: pricing.yml, war.yml, and other domain-specific configuration files
+# arrive in later milestones. Only the bootstrap database/async settings
+# live here for now.
+
+database:
+  host: "localhost"
+  port: 3306
+  database: "flamerealms"
+  username: "flamerealms"
+  password: "CHANGE_ME"
+  pool-size: 10
+
+async:
+  executor-thread-pool-size: 4
+
+visualization:
+  # Particle traced along a previewed chunk's boundary (ClaimVisualizationService).
+  # Must be a valid org.bukkit.Particle name.
+  particle: FLAME
+  # How long (in seconds) a chunk-boundary preview keeps pulsing before it
+  # self-cancels.
+  preview-duration-seconds: 5
+  # How many chunks out from a player's own chunk the /realm map-style
+  # territory grid (TerritoryMapService) covers, in every direction.
+  map-radius-chunks: 8

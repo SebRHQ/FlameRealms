@@ -1,0 +1,94 @@
+# FlameRealms player-facing messages.
+#
+# Format: MiniMessage (https://docs.advntr.dev/minimessage/format.html) —
+# every value below is a COMPLETE template, including its own color/style
+# tags. `prefix` is prepended to all of them. Placeholders are written as
+# <name-of-placeholder> and are filled in by the plugin; only reorder/reword
+# around them, don't rename them.
+#
+# Edit this file, then restart the server (there is no /reload command yet)
+# to apply changes. This file is regenerated with defaults if deleted, but
+# an existing copy is never overwritten on plugin update.
+
+prefix: "<dark_gray>[<gold>Realm</gold>]</dark_gray> "
+
+usage: "<gray>Usage: /realm <create|info|invite|join|leave|disband|balance|deposit|withdraw|claim|unclaim|map|borders></gray>"
+only-players: "<red>Only players may use this command.</red>"
+
+# -- /realm create <name> ------------------------------------------------
+realm-created: "<green>Realm <name> created! You are its leader.</green>"
+
+# -- /realm info [name] ---------------------------------------------------
+not-in-realm: "<red>You are not in a realm.</red>"
+realm-not-found-named: "<red>No realm named <name> was found.</red>"
+realm-info: |-
+  <gold>Realm <white><name></white></gold>
+  <gray>Leader: <white><leader></white></gray>
+  <gray>Level: <white><level></white></gray>
+
+# -- /realm invite <player> -----------------------------------------------
+invite-target-offline: "<red><name> is not online.</red>"
+invite-self: "<red>You cannot invite yourself.</red>"
+invite-no-permission: "<red>You lack permission to invite players.</red>"
+invite-sent: "<green>Invited <name> to your realm.</green>"
+invite-received: "<green>You have been invited to join <name>. Use /realm join <name> to accept.</green>"
+
+# -- /realm join <name> ----------------------------------------------------
+joined-realm: "<green>You joined <name>.</green>"
+
+# -- /realm leave -----------------------------------------------------------
+left-realm: "<green>You left your realm.</green>"
+
+# -- /realm disband ---------------------------------------------------------
+realm-disbanded: "<green><name> has been disbanded.</green>"
+
+# -- /realm balance -----------------------------------------------------------
+balance-personal-only: "<gold>Personal Balance:</gold> <white><personal></white>"
+balance-personal-and-treasury: |-
+  <gold>Personal Balance:</gold> <white><personal></white>
+  <gold>Realm Treasury:</gold> <white><treasury></white>
+
+# -- /realm deposit <amount> ----------------------------------------------
+deposit-success: "<green>Deposited <amount> into your realm's treasury.</green>"
+deposit-insufficient-funds: "<red>You don't have enough money to deposit <amount>.</red>"
+
+# -- /realm withdraw <amount> ----------------------------------------------
+withdraw-success: "<green>Withdrew <amount> from your realm's treasury.</green>"
+withdraw-insufficient-funds: "<red>Your realm's treasury doesn't have enough funds to withdraw <amount>.</red>"
+
+# -- <amount> parsing errors, shared by deposit/withdraw --------------------
+amount-invalid: "<red>That doesn't look like a valid amount.</red>"
+amount-too-many-decimals: "<red>Amounts can have at most 2 decimal places.</red>"
+amount-not-positive: "<red>Amount must be greater than zero.</red>"
+amount-too-large: "<red>That amount is too large.</red>"
+
+# -- /realm claim / /realm claim confirm -------------------------------------
+claim-preview: |-
+  <gold>Claiming chunk <white><chunk-x>, <chunk-z></white> in <white><world></white> would cost <white><price></white>.</gold>
+  <gray>Run /realm claim confirm within <seconds> seconds to buy it.</gray>
+claim-confirm-none: "<red>You have no pending claim to confirm. Run /realm claim first.</red>"
+claim-confirm-expired: "<red>Your claim preview has expired. Run /realm claim again.</red>"
+claim-confirm-success: "<green>Claimed! You paid <price>.</green>"
+
+# -- /realm unclaim -----------------------------------------------------------
+unclaim-success: "<green>Unclaimed this chunk from your realm.</green>"
+unclaim-not-claimed: "<red>This chunk isn't claimed by your realm.</red>"
+
+# -- /realm borders -----------------------------------------------------------
+borders-enabled: "<green>Territory border display enabled — it will follow you until you toggle it off or leave your realm.</green>"
+borders-disabled: "<green>Territory border display disabled.</green>"
+
+# -- generic service-layer error messages -----------------------------------
+error-realm-name-taken: "<red>That realm name is already taken.</red>"
+error-already-in-realm: "<red>You already belong to a realm.</red>"
+error-realm-not-found: "<red>That realm no longer exists.</red>"
+error-player-not-in-realm: "<red>That player does not belong to a realm.</red>"
+error-not-leader: "<red>Only the realm's leader can do that.</red>"
+error-missing-permission: "<red>You lack the permission to do that.</red>"
+error-not-invited: "<red>You have not been invited to that realm.</red>"
+error-leader-cannot-leave: "<red>A realm's leader must disband it instead of leaving.</red>"
+error-chunk-already-claimed: "<red>That chunk is already claimed.</red>"
+error-claim-not-contiguous: "<red>That chunk isn't adjacent to your realm's existing territory.</red>"
+error-insufficient-treasury-funds: "<red>Your realm's treasury can't afford that claim.</red>"
+error-persistence: "<red>Something went wrong. Please try again later.</red>"
+error-unexpected: "<red>An unexpected error occurred.</red>"
